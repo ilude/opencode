@@ -101,7 +101,7 @@ export namespace ToolRegistry {
       InvalidTool,
       ...(["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) ? [QuestionTool] : []),
       BashTool,
-      ...(Flag.OPENCODE_EXPERIMENTAL_PWSH_TOOL && Shell.pwsh() ? [PwshTool] : []),
+      ...(Shell.pwsh() ? [PwshTool] : []),
       ReadTool,
       GlobTool,
       GrepTool,
