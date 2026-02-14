@@ -214,7 +214,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
                   <Match when={props.request.permission === "list"}>
                     <TextBody icon="→" title={`List ` + normalizePath(input().path as string)} />
                   </Match>
-                  <Match when={props.request.permission === "bash"}>
+                  <Match when={props.request.permission === "bash" || props.request.permission === "pwsh"}>
                     <TextBody
                       icon="#"
                       title={(input().description as string) ?? ""}

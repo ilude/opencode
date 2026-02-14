@@ -373,7 +373,7 @@ export function SessionTurn(
     if (msgParts.length !== 1) return
 
     const assistantPart = msgParts[0]
-    if (assistantPart?.type === "tool" && assistantPart.tool === "bash") return assistantPart
+    if (assistantPart?.type === "tool" && (assistantPart.tool === "bash" || assistantPart.tool === "pwsh")) return assistantPart
   })
 
   const isShellMode = createMemo(() => !!shellModePart())
