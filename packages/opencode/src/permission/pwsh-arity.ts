@@ -1,7 +1,7 @@
 export namespace PwshArity {
   export function prefix(tokens: string[]) {
     for (let len = tokens.length; len > 0; len--) {
-      const prefix = tokens.slice(0, len).join(" ")
+      const prefix = tokens.slice(0, len).join(" ").toLowerCase()
       const arity = ARITY[prefix]
       if (arity !== undefined) return tokens.slice(0, arity)
     }
@@ -9,7 +9,7 @@ export namespace PwshArity {
 
     // Check if first token looks like a PowerShell cmdlet (Verb-Noun pattern)
     const firstToken = tokens[0]
-    if (firstToken && /^[A-Z][a-z]+-[A-Z][a-z]/.test(firstToken)) {
+    if (firstToken && /^[a-z][a-z]+-[a-z][a-z]/i.test(firstToken)) {
       return tokens.slice(0, 1)
     }
 

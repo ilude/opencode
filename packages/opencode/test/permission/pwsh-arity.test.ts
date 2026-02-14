@@ -48,3 +48,14 @@ test("unknown commands default to arity 1", () => {
   expect(PwshArity.prefix(["unknown", "command", "subcommand"])).toEqual(["unknown"])
   expect(PwshArity.prefix(["my-custom-script", "arg1", "arg2"])).toEqual(["my-custom-script"])
 })
+
+test("case-insensitive matching - external tools", () => {
+  expect(PwshArity.prefix(["Git", "remote", "add", "origin"])).toEqual(["Git", "remote", "add"])
+  expect(PwshArity.prefix(["GIT", "REMOTE", "ADD", "ORIGIN"])).toEqual(["GIT", "REMOTE", "ADD"])
+  expect(PwshArity.prefix(["Docker", "Compose", "Up", "-d"])).toEqual(["Docker", "Compose", "Up"])
+})
+
+test("case-insensitive matching - PowerShell cmdlets", () => {
+  expect(PwshArity.prefix(["get-childitem", "-Path", "C:\\"])).toEqual(["get-childitem"])
+  expect(PwshArity.prefix(["GET-CHILDITEM", "-Path", "C:\\"])).toEqual(["GET-CHILDITEM"])
+})

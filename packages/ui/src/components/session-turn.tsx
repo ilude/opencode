@@ -102,6 +102,7 @@ function computeStatusFromPart(part: PartType | undefined, t: Translator): strin
       case "write":
         return t("ui.sessionTurn.status.makingEdits")
       case "bash":
+      case "pwsh":
         return t("ui.sessionTurn.status.runningCommands")
       default:
         return undefined

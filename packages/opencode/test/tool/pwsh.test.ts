@@ -6,6 +6,11 @@ import { tmpdir } from "../fixture/fixture"
 import type { PermissionNext } from "../../src/permission/next"
 import { Truncate } from "../../src/tool/truncation"
 
+// Helper to access truncation metadata added by the framework at runtime
+function truncationMeta(result: { metadata: Record<string, unknown> }) {
+  return result.metadata as { truncated: boolean; outputPath?: string }
+}
+
 const ctx = {
   sessionID: "test",
   messageID: "",
@@ -387,6 +392,41 @@ run("tool.pwsh permissions", () => {
     })
   })
 
+  test("MSYS paths do not produce root-wide external_directory patterns", async () => {
+    if (process.platform !== "win32") return
+
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        // Use MSYS-style path to a specific directory
+        await pwshTool.execute(
+          {
+            command: "Set-Location /c/Users",
+            description: "cd via MSYS path",
+          },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        if (extDirReq) {
+          // Should NOT produce a pattern like "C:\*" (root-wide)
+          for (const pattern of extDirReq.patterns) {
+            const normalized = pattern.replace(/\\/g, "/")
+            expect(normalized).not.toMatch(/^[A-Z]:\/\*$/)
+          }
+        }
+      },
+    })
+  })
+
   test("does not crash on invalid workdir", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
@@ -405,9 +445,9 @@ run("tool.pwsh permissions", () => {
           // Should not throw, should return result (possibly with error output)
           expect(result).toBeDefined()
           expect(result.metadata).toBeDefined()
-        } catch (error: any) {
+        } catch (error) {
           // May throw ENOENT - verify it's a controlled error, not a crash
-          expect(error.code).toBe("ENOENT")
+          expect(error).toHaveProperty("code", "ENOENT")
         }
       },
     })
@@ -555,7 +595,7 @@ run("tool.pwsh truncation", () => {
           },
           ctx,
         )
-        expect((result.metadata as any).truncated).toBe(true)
+        expect(truncationMeta(result).truncated).toBe(true)
         expect(result.output).toContain("truncated")
         expect(result.output).toContain("The tool call succeeded but the output was truncated")
       },
@@ -576,7 +616,7 @@ run("tool.pwsh truncation", () => {
           },
           ctx,
         )
-        expect((result.metadata as any).truncated).toBe(true)
+        expect(truncationMeta(result).truncated).toBe(true)
         expect(result.output).toContain("truncated")
         expect(result.output).toContain("The tool call succeeded but the output was truncated")
       },
@@ -596,7 +636,7 @@ run("tool.pwsh truncation", () => {
           },
           ctx,
         )
-        expect((result.metadata as any).truncated).toBe(false)
+        expect(truncationMeta(result).truncated).toBe(false)
         expect(result.output).toContain("hello")
       },
     })
@@ -616,12 +656,12 @@ run("tool.pwsh truncation", () => {
           },
           ctx,
         )
-        expect((result.metadata as any).truncated).toBe(true)
+        expect(truncationMeta(result).truncated).toBe(true)
 
-        const filepath = (result.metadata as any).outputPath
+        const filepath = truncationMeta(result).outputPath
         expect(filepath).toBeTruthy()
 
-        const saved = await Bun.file(filepath).text()
+        const saved = await Bun.file(filepath!).text()
         const lines = saved.trim().split(/\r?\n/)
         expect(lines.length).toBe(lineCount)
         expect(lines[0].trim()).toBe("1")

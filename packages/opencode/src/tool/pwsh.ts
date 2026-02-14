@@ -107,13 +107,30 @@ function stripQuotes(value: string): string {
   return value
 }
 
+/**
+ * Normalize MSYS/Cygwin-style paths to Windows paths on Windows.
+ * /c/foo -> C:/foo, /cygdrive/c/foo -> C:/foo
+ * Leaves regular relative paths and non-MSYS paths unchanged.
+ */
+function normalizeMsysPath(p: string): string {
+  if (process.platform !== "win32") return p
+  // /cygdrive/X/... -> X:/...
+  const cygMatch = p.match(/^\/cygdrive\/([a-zA-Z])(\/.*)?$/)
+  if (cygMatch) return `${cygMatch[1].toUpperCase()}:${cygMatch[2] || "/"}`
+  // /X/... -> X:/... (single letter after leading slash)
+  const msysMatch = p.match(/^\/([a-zA-Z])(\/.*)?$/)
+  if (msysMatch) return `${msysMatch[1].toUpperCase()}:${msysMatch[2] || "/"}`
+  return p
+}
+
 // Resolve a path argument to its real filesystem path, returning null if unresolvable
 function resolvePathArg(cwd: string, arg: string): string | null {
   if (arg.startsWith("-")) return null
   const stripped = stripQuotes(arg)
   if (isUnresolvable(stripped)) return null
   try {
-    const resolved = path.resolve(cwd, stripped)
+    const normalized = normalizeMsysPath(stripped)
+    const resolved = path.resolve(cwd, normalized)
     try {
       return fs.realpathSync(resolved)
     } catch {
