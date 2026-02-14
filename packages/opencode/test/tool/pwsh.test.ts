@@ -758,3 +758,239 @@ run("tool.pwsh truncation", () => {
     })
   })
 })
+
+run("tool.pwsh security", () => {
+  test("blocks PowerShell provider path (Cert:\\)", async () => {
+    if (process.platform !== "win32") return // Provider paths are Windows-specific
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Get-ChildItem Cert:\\CurrentUser",
+            description: "List certificates",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Provider path should NOT trigger external_directory (it's not a filesystem path)
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  }, 15000)
+
+  test("blocks PowerShell provider path (HKCU:\\)", async () => {
+    if (process.platform !== "win32") return // Provider paths are Windows-specific
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Get-Item HKCU:\\Software",
+            description: "Access registry",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Provider path should NOT trigger external_directory
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeUndefined()
+      },
+    })
+  }, 15000)
+
+  test("blocks $HOME path expansion bypass", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Test-Path $HOME",
+            description: "Test home directory path",
+          },
+          testCtx,
+        )
+        // Should trigger external_directory for home directory access
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns.some((p) => p.includes(os.homedir()))).toBe(true)
+      },
+    })
+  }, 15000)
+
+  test("blocks ~ path traversal bypass", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Get-Content ~/../../tmp",
+            description: "Attempt traversal via tilde",
+          },
+          testCtx,
+        )
+        // Should trigger external_directory
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        // Pattern should NOT be root-wide (like C:\\* on Windows)
+        if (process.platform === "win32") {
+          const hasRootWildcard = extDirReq!.patterns.some((p) => /^[A-Z]:\\?\*$/i.test(p))
+          expect(hasRootWildcard).toBe(false)
+        }
+      },
+    })
+  }, 15000)
+
+  test("dangerous cmdlets not auto-approved", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Invoke-Expression 'Write-Output test'",
+            description: "Test dangerous cmdlet",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Should have pattern but NO auto-approval (empty always array)
+        expect(requests[0].patterns.length).toBeGreaterThan(0)
+        expect(requests[0].always.length).toBe(0)
+      },
+    })
+  })
+
+  test("dangerous cmdlet aliases not auto-approved (iex)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "iex 'Get-ChildItem'",
+            description: "Test dangerous alias",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Should NOT have auto-approval
+        expect(requests[0].always.length).toBe(0)
+      },
+    })
+  })
+
+  test("network cmdlets not auto-approved (Invoke-WebRequest)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Invoke-WebRequest https://example.com",
+            description: "Test network cmdlet",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Should NOT have auto-approval
+        expect(requests[0].always.length).toBe(0)
+      },
+    })
+  })
+
+  test("registry cmdlets not auto-approved (Get-ItemProperty)", async () => {
+    if (process.platform !== "win32") return // Registry is Windows-specific
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Get-ItemProperty HKCU:\\Software\\Test",
+            description: "Test registry cmdlet",
+          },
+          testCtx,
+        )
+        expect(requests.length).toBe(1)
+        expect(requests[0].permission).toBe("pwsh")
+        // Should NOT have auto-approval
+        expect(requests[0].always.length).toBe(0)
+      },
+    })
+  })
+})

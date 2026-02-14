@@ -103,12 +103,98 @@ const FILESYSTEM_CMDLETS = new Set([
 // Named parameters that contain filesystem paths (matched case-insensitively)
 const PATH_PARAMETERS = new Set(["-path", "-literalpath", "-destination", "-newname", "-source", "-filepath"])
 
+// Dangerous cmdlets that should always require explicit permission (never auto-approved)
+// These can execute code, access network, modify system state, or access sensitive resources
+const DANGEROUS_CMDLETS = new Set([
+  // Code execution
+  "invoke-expression",
+  "invoke-command",
+  "start-process",
+  "start-job",
+  "iex", // alias for Invoke-Expression
+  "icm", // alias for Invoke-Command
+  "saps", // alias for Start-Process
+  "sajb", // alias for Start-Job
+
+  // Network access
+  "invoke-webrequest",
+  "invoke-restmethod",
+  "test-connection",
+  "test-netconnection",
+  "new-netfirewallrule",
+  "iwr", // alias for Invoke-WebRequest
+  "irm", // alias for Invoke-RestMethod
+  "curl", // alias for Invoke-WebRequest
+  "wget", // alias for Invoke-WebRequest
+
+  // Registry access
+  "new-itemproperty",
+  "set-itemproperty",
+  "remove-itemproperty",
+  "get-itemproperty",
+  "get-item", // can access registry paths like HKCU:\
+  "sp", // alias for Set-ItemProperty
+  "gp", // alias for Get-ItemProperty
+  "gi", // alias for Get-Item
+
+  // System modification
+  "stop-process",
+  "stop-service",
+  "start-service",
+  "restart-service",
+  "restart-computer",
+  "stop-computer",
+  "spps", // alias for Stop-Process
+  "spsv", // alias for Stop-Service
+  "sasv", // alias for Start-Service
+  "rsv", // alias for Restart-Service
+
+  // Credential and sensitive data
+  "get-credential",
+  "convertto-securestring",
+  "convertfrom-securestring",
+  "export-clixml",
+  "import-clixml",
+  "export-csv",
+  "epcsv", // alias for Export-Csv
+  "ipcsv", // alias for Import-Csv
+])
+
 // Set-Location and its aliases — excluded from command permission patterns (same as cd in bash)
 const SET_LOCATION_NAMES = new Set(["set-location", "cd", "sl", "chdir"])
 
 // Checks if a value looks like a PowerShell variable/expression that cannot be resolved statically
+// Also detects PowerShell provider paths which are not filesystem paths
 function isUnresolvable(value: string): boolean {
-  return value.startsWith("$") || value.startsWith("(") || value.startsWith("@(")
+  // PowerShell variables and expressions - but allow specific resolvable ones
+  if (value.startsWith("$")) {
+    // Allow $HOME and $HOME/path (we expand them in resolvePathArg)
+    const upperValue = value.toUpperCase()
+    const isHome = upperValue === "$HOME" || upperValue.startsWith("$HOME/") || upperValue.startsWith("$HOME\\")
+    if (!isHome) {
+      // Block all other variables ($env:, $PSScriptRoot, etc.)
+      return true
+    }
+  }
+
+  if (value.startsWith("(") || value.startsWith("@(")) return true
+
+  // PowerShell provider paths (not filesystem paths, should be blocked or specially handled)
+  // Common providers: Cert:, HKCU:, HKLM:, Env:, Function:, Variable:, Alias:, WSMan:
+  if (/^[A-Za-z]+:\\/.test(value)) {
+    const providerMatch = value.match(/^([A-Za-z]+):\\/)
+    if (providerMatch) {
+      const provider = providerMatch[1].toLowerCase()
+      // Allow only C: through Z: (filesystem drive letters)
+      // Block all other providers (Cert, HKCU, HKLM, Env, Function, Variable, Alias, WSMan, etc.)
+      if (provider.length !== 1) {
+        log.warn("Blocking PowerShell provider path", { path: value, provider })
+        return true // Treat as unresolvable to prevent bypassing external_directory check
+      }
+    }
+  }
+
+  return false
 }
 
 // Strip surrounding quotes from a string value
@@ -148,6 +234,16 @@ function resolvePathArg(cwd: string, arg: string): string | null {
     } else if (expanded.startsWith("~/") || expanded.startsWith("~\\")) {
       expanded = os.homedir() + expanded.slice(1)
     }
+
+    // Expand common PowerShell environment variables to catch bypass attempts
+    // Note: Full $env: expansion is blocked by isUnresolvable, but we can expand known patterns
+    // This handles cases like $HOME (PowerShell alias for home directory)
+    if (expanded === "$HOME" || expanded === "$Home" || expanded === "$home") {
+      expanded = os.homedir()
+    } else if (expanded.startsWith("$HOME/") || expanded.startsWith("$HOME\\")) {
+      expanded = os.homedir() + expanded.slice(5)
+    }
+
     const normalized = normalizeMsysPath(expanded)
     const resolved = path.resolve(cwd, normalized)
     try {
@@ -323,9 +419,13 @@ export const PwshTool = Tool.define("pwsh", async () => {
             }
 
             // Build permission patterns — exclude Set-Location/cd (handled by external_directory)
+            // Also exclude dangerous cmdlets from auto-approval (always require explicit permission)
             if (tokens.length && !SET_LOCATION_NAMES.has(nameLower)) {
               patterns.add(commandText)
-              always.add(PwshArity.prefix(tokens).join(" ") + " *")
+              // Only add to 'always' (auto-approve) if NOT a dangerous cmdlet
+              if (!DANGEROUS_CMDLETS.has(nameLower)) {
+                always.add(PwshArity.prefix(tokens).join(" ") + " *")
+              }
             }
           }
         }
