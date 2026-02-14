@@ -59,3 +59,17 @@ test("case-insensitive matching - PowerShell cmdlets", () => {
   expect(PwshArity.prefix(["get-childitem", "-Path", "C:\\"])).toEqual(["get-childitem"])
   expect(PwshArity.prefix(["GET-CHILDITEM", "-Path", "C:\\"])).toEqual(["GET-CHILDITEM"])
 })
+
+test("arity 1 - expanded aliases", () => {
+  expect(PwshArity.prefix(["ac", "file.txt", "content"])).toEqual(["ac"])
+  expect(PwshArity.prefix(["clc", "file.txt"])).toEqual(["clc"])
+  expect(PwshArity.prefix(["ren", "old.txt", "new.txt"])).toEqual(["ren"])
+  expect(PwshArity.prefix(["rni", "old.txt", "new.txt"])).toEqual(["rni"])
+  expect(PwshArity.prefix(["ii", "file.txt"])).toEqual(["ii"])
+})
+
+test("case-insensitive matching preserves original casing", () => {
+  expect(PwshArity.prefix(["AC", "file.txt"])).toEqual(["AC"])
+  expect(PwshArity.prefix(["Ren", "old.txt", "new.txt"])).toEqual(["Ren"])
+  expect(PwshArity.prefix(["NPM", "run", "dev"])).toEqual(["NPM", "run", "dev"])
+})

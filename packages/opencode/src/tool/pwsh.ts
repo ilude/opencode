@@ -3,6 +3,7 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import path from "path"
 import fs from "fs"
+import os from "os"
 import DESCRIPTION from "./pwsh.txt"
 import { Log } from "../util/log"
 import { Instance } from "../project/instance"
@@ -61,6 +62,12 @@ const FILESYSTEM_CMDLETS = new Set([
   "set-content",
   "get-content",
   "get-childitem",
+  "add-content",
+  "clear-content",
+  "out-file",
+  "rename-item",
+  "test-path",
+  "invoke-item",
   // Common aliases
   "cd",
   "sl",
@@ -86,10 +93,15 @@ const FILESYSTEM_CMDLETS = new Set([
   "gci",
   "ls",
   "dir",
+  "ac",
+  "clc",
+  "ren",
+  "rni",
+  "ii",
 ])
 
 // Named parameters that contain filesystem paths (matched case-insensitively)
-const PATH_PARAMETERS = new Set(["-path", "-literalpath", "-destination", "-newname"])
+const PATH_PARAMETERS = new Set(["-path", "-literalpath", "-destination", "-newname", "-source", "-filepath"])
 
 // Set-Location and its aliases — excluded from command permission patterns (same as cd in bash)
 const SET_LOCATION_NAMES = new Set(["set-location", "cd", "sl", "chdir"])
@@ -129,7 +141,14 @@ function resolvePathArg(cwd: string, arg: string): string | null {
   const stripped = stripQuotes(arg)
   if (isUnresolvable(stripped)) return null
   try {
-    const normalized = normalizeMsysPath(stripped)
+    // Expand ~ to home directory (PowerShell resolves ~ to $HOME)
+    let expanded = stripped
+    if (expanded === "~") {
+      expanded = os.homedir()
+    } else if (expanded.startsWith("~/") || expanded.startsWith("~\\")) {
+      expanded = os.homedir() + expanded.slice(1)
+    }
+    const normalized = normalizeMsysPath(expanded)
     const resolved = path.resolve(cwd, normalized)
     try {
       return fs.realpathSync(resolved)

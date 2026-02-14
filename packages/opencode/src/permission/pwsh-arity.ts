@@ -6,13 +6,6 @@ export namespace PwshArity {
       if (arity !== undefined) return tokens.slice(0, arity)
     }
     if (tokens.length === 0) return []
-
-    // Check if first token looks like a PowerShell cmdlet (Verb-Noun pattern)
-    const firstToken = tokens[0]
-    if (firstToken && /^[a-z][a-z]+-[a-z][a-z]/i.test(firstToken)) {
-      return tokens.slice(0, 1)
-    }
-
     return tokens.slice(0, 1)
   }
 
@@ -57,6 +50,11 @@ export namespace PwshArity {
     type: 1, // type file.txt (Get-Content)
     where: 1, // where (Where-Object)
     write: 1, // write "hello" (Write-Output)
+    ac: 1, // ac file.txt content (Add-Content)
+    clc: 1, // clc file.txt (Clear-Content)
+    ren: 1, // ren old.txt new.txt (Rename-Item)
+    rni: 1, // rni old.txt new.txt (Rename-Item)
+    ii: 1, // ii file.txt (Invoke-Item)
 
     // External tools called from PowerShell (same as BashArity)
     aws: 3, // aws s3 ls

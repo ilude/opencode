@@ -218,7 +218,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
                     <TextBody
                       icon="#"
                       title={(input().description as string) ?? ""}
-                      description={("$ " + input().command) as string}
+                      description={((props.request.permission === "pwsh" ? "PS> " : "$ ") + input().command) as string}
                     />
                   </Match>
                   <Match when={props.request.permission === "task"}>

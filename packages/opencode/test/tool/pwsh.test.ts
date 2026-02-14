@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import os from "os"
 import path from "path"
 import { PwshTool } from "../../src/tool/pwsh"
 import { Instance } from "../../src/project/instance"
@@ -27,6 +28,7 @@ const run = pwsh ? describe : describe.skip
 
 run("tool.pwsh", () => {
   test("basic", async () => {
+    // Allow 30s for tree-sitter WASM initialization on first test run
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
       directory: tmp.path,
@@ -43,7 +45,7 @@ run("tool.pwsh", () => {
         expect(result.metadata.output).toContain("test")
       },
     })
-  })
+  }, 30_000)
 })
 
 run("tool.pwsh permissions", () => {
@@ -575,6 +577,92 @@ run("tool.pwsh permissions", () => {
         const pwshReq = requests.find((r) => r.permission === "pwsh")
         expect(pwshReq).toBeDefined()
         // Should not assume it's in-project
+      },
+    })
+  })
+
+  test("~ path triggers external_directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Get-ChildItem ~",
+            description: "List home directory",
+          },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns.some((p) => p.includes(os.homedir()))).toBe(true)
+      },
+    })
+  })
+
+  test("Set-Location ~ triggers external_directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        await pwshTool.execute(
+          {
+            command: "Set-Location ~",
+            description: "cd to home",
+          },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+      },
+    })
+  })
+
+  test("expanded cmdlets trigger external_directory for outside paths", async () => {
+    await using outerTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "target.txt"), "x")
+      },
+    })
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const pwshTool = await PwshTool.init()
+        const requests: Array<Omit<PermissionNext.Request, "id" | "sessionID" | "tool">> = []
+        const testCtx = {
+          ...ctx,
+          ask: async (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) => {
+            requests.push(req)
+          },
+        }
+        const filepath = path.join(outerTmp.path, "target.txt")
+        await pwshTool.execute(
+          {
+            command: `Add-Content -Path "${filepath}" -Value "test"`,
+            description: "Append to external file",
+          },
+          testCtx,
+        )
+        const extDirReq = requests.find((r) => r.permission === "external_directory")
+        expect(extDirReq).toBeDefined()
+        expect(extDirReq!.patterns.some((p) => p.includes(outerTmp.path))).toBe(true)
       },
     })
   })

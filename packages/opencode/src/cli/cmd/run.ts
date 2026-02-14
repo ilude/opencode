@@ -189,7 +189,7 @@ function bash(info: ToolProps<typeof BashTool>) {
   const output = info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined
   block(
     {
-      icon: "$",
+      icon: info.part.tool === "pwsh" ? "PS>" : "$",
       title: `${info.input.command}`,
     },
     output,
