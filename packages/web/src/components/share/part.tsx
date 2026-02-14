@@ -620,6 +620,7 @@ export function BashTool(props: ToolProps) {
       command={props.state.input.command}
       output={props.state.metadata.output ?? props.state.metadata?.stdout}
       description={props.state.metadata.description}
+      tool={props.tool}
     />
   )
 }
