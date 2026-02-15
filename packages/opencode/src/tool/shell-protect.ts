@@ -60,7 +60,7 @@ export function expand(token: string): string {
 const win32 = path.win32
 const posix = path.posix
 
-function pick(platform: string) {
+function pick(platform: string): typeof path.win32 {
   return platform === "win32" ? win32 : posix
 }
 
@@ -75,7 +75,7 @@ function pick(platform: string) {
  */
 export function normalize(
   p: string,
-  platform = process.platform,
+  platform: string = process.platform,
 ): string {
   let result = p
 
@@ -112,7 +112,7 @@ export function normalize(
 export function resolve(
   token: string,
   cwd: string,
-  platform = process.platform,
+  platform: string = process.platform,
 ): string | null {
   const expanded = expand(token)
   // If still a variable reference after expansion, we can't resolve it
