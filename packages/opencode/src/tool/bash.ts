@@ -19,6 +19,7 @@ import { Truncate } from "./truncation"
 import { Plugin } from "@/plugin"
 import { unwrap } from "./shell-unwrap"
 import { catastrophic } from "./shell-catastrophic"
+import { zero } from "./shell-zero"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -114,12 +115,17 @@ export const BashTool = Tool.define("bash", async () => {
           command.push(child.text)
         }
 
-        // Catastrophic command protection — runs before permission prompt
+        // Catastrophic + zero-access protection — runs before permission prompt
         const unwrapped = unwrap(command)
-        const check = catastrophic(unwrapped.tokens, cwd)
-        if (check.decision === "block")
+        const catCheck = catastrophic(unwrapped.tokens, cwd)
+        if (catCheck.decision === "block")
           throw new Error(
-            `Command blocked: ${check.reason}. If this is intentional, run it manually in your own terminal.`,
+            `Command blocked: ${catCheck.reason}. If this is intentional, run it manually in your own terminal.`,
+          )
+        const zeroCheck = zero(unwrapped.tokens, cwd, Instance.directory)
+        if (zeroCheck.decision === "block")
+          throw new Error(
+            `Command blocked: ${zeroCheck.reason}. If this is intentional, run it manually in your own terminal.`,
           )
 
         // not an exhaustive list, but covers most common cases
