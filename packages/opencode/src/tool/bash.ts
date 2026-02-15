@@ -17,6 +17,8 @@ import { Shell } from "@/shell/shell"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
 import { Plugin } from "@/plugin"
+import { unwrap } from "./shell-unwrap"
+import { catastrophic } from "./shell-catastrophic"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -111,6 +113,14 @@ export const BashTool = Tool.define("bash", async () => {
           }
           command.push(child.text)
         }
+
+        // Catastrophic command protection — runs before permission prompt
+        const unwrapped = unwrap(command)
+        const check = catastrophic(unwrapped.tokens, cwd)
+        if (check.decision === "block")
+          throw new Error(
+            `Command blocked: ${check.reason}. If this is intentional, run it manually in your own terminal.`,
+          )
 
         // not an exhaustive list, but covers most common cases
         if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
