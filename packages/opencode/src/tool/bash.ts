@@ -20,6 +20,7 @@ import { Plugin } from "@/plugin"
 import { unwrap } from "./shell-unwrap"
 import { catastrophic } from "./shell-catastrophic"
 import { zero } from "./shell-zero"
+import { exfiltration } from "./shell-exfil"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -115,7 +116,7 @@ export const BashTool = Tool.define("bash", async () => {
           command.push(child.text)
         }
 
-        // Catastrophic + zero-access protection — runs before permission prompt
+        // Shell protection — runs before permission prompt
         const unwrapped = unwrap(command)
         const catCheck = catastrophic(unwrapped.tokens, cwd)
         if (catCheck.decision === "block")
@@ -126,6 +127,28 @@ export const BashTool = Tool.define("bash", async () => {
         if (zeroCheck.decision === "block")
           throw new Error(
             `Command blocked: ${zeroCheck.reason}. If this is intentional, run it manually in your own terminal.`,
+          )
+
+        // Exfiltration check with pipeline context
+        const pipelineParent = node.parent?.type === "pipeline" ? node.parent : null
+        const pipeline: string[][] | undefined = pipelineParent
+          ? pipelineParent.descendantsOfType("command")
+              .filter((n): n is NonNullable<typeof n> => n !== null)
+              .map((n) => {
+                const tokens: string[] = []
+                for (let j = 0; j < n.childCount; j++) {
+                  const c = n.child(j)
+                  if (!c) continue
+                  if (c.type === "command_name" || c.type === "word" || c.type === "string" || c.type === "raw_string" || c.type === "concatenation")
+                    tokens.push(c.text)
+                }
+                return tokens
+              })
+          : undefined
+        const exfilCheck = exfiltration(unwrapped.tokens, pipeline)
+        if (exfilCheck.decision === "block")
+          throw new Error(
+            `Command blocked: ${exfilCheck.reason}. If this is intentional, run it manually in your own terminal.`,
           )
 
         // not an exhaustive list, but covers most common cases
